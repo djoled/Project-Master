@@ -1,0 +1,7 @@
+{
+  "name": "Project Master 101",
+  "description": "A high-performance internal corporate project management tool for owners and PMs to track tasks with photo documentation.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
