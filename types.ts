@@ -11,7 +11,7 @@ export interface User {
   name: string;
   username: string;
   password?: string;
-  email: string; // Kept for display/contact purposes
+  email: string;
   role: Role;
   createdAt: number;
 }
@@ -79,12 +79,13 @@ export interface ChatGroup {
 
 export interface ChatMessage {
   id: string;
-  groupId?: string; // Optional, undefined implies 'general'
+  groupId?: string; 
   senderId: string;
   senderName: string;
   content: string;
   photoUrl: string | null;
   createdAt: number;
+  isRead?: boolean; // Mock read status
 }
 
 export interface Notification {

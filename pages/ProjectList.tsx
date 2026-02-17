@@ -3,8 +3,9 @@ import React, { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppContext } from '../context/AppContext';
 import { ChatPanel } from '../components/ChatPanel';
-import { Plus, Folder, Users, ChevronRight, Search, Calendar, Clock, Trash2, HardHat, ShieldCheck, CheckCircle2, UserPlus, AlertCircle, Image as ImageIcon, Key, User as UserIcon, Activity, Briefcase } from 'lucide-react';
+import { Plus, Folder, Users, ChevronRight, Search, Calendar, Clock, Trash2, HardHat, ShieldCheck, CheckCircle2, UserPlus, AlertCircle, Image as ImageIcon, Key, User as UserIcon, Activity, Briefcase, X, AlertTriangle, Mail } from 'lucide-react';
 import { Role, Project, User, Photo } from '../types';
+import { supabase } from '../services/supabaseClient';
 
 export const ProjectList: React.FC = () => {
   const { state, dispatch } = useAppContext();
@@ -12,15 +13,19 @@ export const ProjectList: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newProject, setNewProject] = useState({ name: '', description: '', pmName: '', pmUsername: '', pmPassword: '', dueDate: '' });
   
+  // Delete Confirmation State
+  const [projectToDelete, setProjectToDelete] = useState<{id: string, name: string} | null>(null);
+
   // Scheme Upload State
   const [schemes, setSchemes] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Quick Invite State for Owner
-  const [inviteOpsName, setInviteOpsName] = useState('');
-  const [inviteOpsUsername, setInviteOpsUsername] = useState('');
-  const [inviteOpsPassword, setInviteOpsPassword] = useState('');
-  const [inviteStatus, setInviteStatus] = useState<'idle' | 'success'>('idle');
+  // Provision User State
+  const [provisionName, setProvisionName] = useState('');
+  const [provisionEmail, setProvisionEmail] = useState('');
+  const [provisionPassword, setProvisionPassword] = useState('');
+  const [provisionRole, setProvisionRole] = useState<Role>(Role.PM);
+  const [provisionStatus, setProvisionStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
 
   const isOwner = state.currentUser?.role === Role.OWNER;
   const isOpsManager = state.currentUser?.role === Role.OPS_MANAGER;
@@ -132,40 +137,57 @@ export const ProjectList: React.FC = () => {
     setSchemes([]);
   };
 
-  const handleDeleteProject = (e: React.MouseEvent, id: string, name: string) => {
+  const handleDeleteClick = (e: React.MouseEvent, id: string, name: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (window.confirm(`Are you sure you want to remove project "${name}"? This will delete all subcategories and tasks.`)) {
-      dispatch({ type: 'DELETE_PROJECT', payload: id });
+    if (!isOwner && !isOpsManager) return;
+    setProjectToDelete({ id, name });
+  };
+
+  const confirmDelete = () => {
+    if (projectToDelete && (isOwner || isOpsManager)) {
+      dispatch({ type: 'DELETE_PROJECT', payload: projectToDelete.id });
+      setProjectToDelete(null);
     }
   };
 
-  const handleQuickCreateOps = (e: React.FormEvent) => {
+  const handleProvisionUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inviteOpsUsername.trim() || !inviteOpsName.trim() || !inviteOpsPassword.trim()) return;
+    if (!provisionName || !provisionEmail || !provisionPassword || !provisionRole) return;
+    
+    setProvisionStatus('loading');
+    
+    try {
+        const { data, error } = await supabase.functions.invoke('create-user', {
+            body: {
+                full_name: provisionName,
+                email: provisionEmail,
+                password: provisionPassword,
+                role: provisionRole,
+                username: provisionEmail.split('@')[0]
+            }
+        });
 
-    if (state.users.some(u => u.username.toLowerCase() === inviteOpsUsername.toLowerCase())) {
-        alert('Username already exists');
-        return;
+        if (error) throw error;
+
+        // Optionally update local state if backend returns the user
+        if (data && data.user) {
+             dispatch({ type: 'REGISTER_USER', payload: data.user });
+        } else {
+             // Fallback optimistic update if data.user isn't structure exactly this way
+             // or just wait for reload. For demo, we might want to ensure feedback.
+        }
+
+        setProvisionStatus('success');
+        setProvisionName('');
+        setProvisionEmail('');
+        setProvisionPassword('');
+        setTimeout(() => setProvisionStatus('idle'), 3000);
+    } catch (err: any) {
+        console.error("Provisioning failed:", err);
+        setProvisionStatus('error');
+        setTimeout(() => setProvisionStatus('idle'), 3000);
     }
-
-    const newUser: User = {
-        id: Math.random().toString(36).substr(2, 9),
-        name: inviteOpsName,
-        username: inviteOpsUsername,
-        password: inviteOpsPassword,
-        email: `${inviteOpsUsername}@projectmaster.com`,
-        role: Role.OPS_MANAGER,
-        createdAt: Date.now()
-    };
-
-    dispatch({ type: 'REGISTER_USER', payload: newUser });
-
-    setInviteOpsUsername('');
-    setInviteOpsName('');
-    setInviteOpsPassword('');
-    setInviteStatus('success');
-    setTimeout(() => setInviteStatus('idle'), 3000);
   };
 
   const formatDate = (ts?: number) => {
@@ -176,6 +198,13 @@ export const ProjectList: React.FC = () => {
   const opsManagers = state.users.filter(u => u.role === Role.OPS_MANAGER);
   const pms = state.users.filter(u => u.role === Role.PM);
   const contractors = state.users.filter(u => u.role === Role.CONTRACTOR);
+  
+  const getAllowedRoles = () => {
+      if (isOwner) return [Role.OPS_MANAGER, Role.PM, Role.CONTRACTOR];
+      if (isOpsManager) return [Role.PM, Role.CONTRACTOR];
+      return [];
+  };
+  const allowedRoles = getAllowedRoles();
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-140px)]">
@@ -199,55 +228,79 @@ export const ProjectList: React.FC = () => {
                    </div>
                 </div>
                 
-                {/* Inline Invite Form (Quick Ops) - OWNER ONLY */}
-                {isOwner && (
-                  <form onSubmit={handleQuickCreateOps} className="bg-white/10 p-1.5 rounded-2xl flex flex-col sm:flex-row gap-2 border border-white/10 backdrop-blur-sm mt-2">
-                     <div className="flex-1 bg-white rounded-xl px-3 py-2 flex items-center gap-2">
+                {/* Provision User Form */}
+                <form onSubmit={handleProvisionUser} className="bg-white/10 p-2 rounded-2xl flex flex-col gap-2 border border-white/10 backdrop-blur-sm mt-2">
+                   <div className="flex flex-col sm:flex-row gap-2">
+                     <div className="flex-[1.5] bg-white rounded-xl px-3 py-2 flex items-center gap-2">
                        <Users size={16} className="text-slate-400 shrink-0" />
                        <input 
                          required
-                         value={inviteOpsName}
-                         onChange={e => setInviteOpsName(e.target.value)}
+                         value={provisionName}
+                         onChange={e => setProvisionName(e.target.value)}
                          placeholder="Full Name" 
-                         className="bg-transparent border-none focus:ring-0 text-slate-900 placeholder:text-slate-400 text-sm font-bold w-full outline-none"
+                         className="bg-transparent border-none focus:ring-0 text-slate-900 placeholder:text-slate-400 text-sm font-bold w-full outline-none p-0"
                        />
                      </div>
-                     <div className="flex-1 bg-white rounded-xl px-3 py-2 flex items-center gap-2">
-                       <UserIcon size={16} className="text-slate-400 shrink-0" />
+                     <div className="flex-[2] bg-white rounded-xl px-3 py-2 flex items-center gap-2">
+                       <Mail size={16} className="text-slate-400 shrink-0" />
                        <input 
                          required
-                         value={inviteOpsUsername}
-                         onChange={e => setInviteOpsUsername(e.target.value)}
-                         placeholder="Username" 
-                         className="bg-transparent border-none focus:ring-0 text-slate-900 placeholder:text-slate-400 text-sm font-bold w-full outline-none"
+                         type="email"
+                         value={provisionEmail}
+                         onChange={e => setProvisionEmail(e.target.value)}
+                         placeholder="Email Address" 
+                         className="bg-transparent border-none focus:ring-0 text-slate-900 placeholder:text-slate-400 text-sm font-bold w-full outline-none p-0"
                        />
                      </div>
-                     <div className="flex-1 bg-white rounded-xl px-3 py-2 flex items-center gap-2">
+                   </div>
+                   
+                   <div className="flex flex-col sm:flex-row gap-2">
+                     <div className="flex-[1.5] bg-white rounded-xl px-3 py-2 flex items-center gap-2">
                        <Key size={16} className="text-slate-400 shrink-0" />
                        <input 
                          required
-                         value={inviteOpsPassword}
-                         onChange={e => setInviteOpsPassword(e.target.value)}
+                         type="text" // Visible for admin creation convenience
+                         value={provisionPassword}
+                         onChange={e => setProvisionPassword(e.target.value)}
                          placeholder="Password" 
-                         className="bg-transparent border-none focus:ring-0 text-slate-900 placeholder:text-slate-400 text-sm font-bold w-full outline-none"
+                         className="bg-transparent border-none focus:ring-0 text-slate-900 placeholder:text-slate-400 text-sm font-bold w-full outline-none p-0"
                        />
+                     </div>
+                     <div className="flex-1 bg-white rounded-xl px-2 py-2 flex items-center gap-2">
+                       <Briefcase size={16} className="text-slate-400 shrink-0 ml-1" />
+                       <select 
+                         value={provisionRole}
+                         onChange={e => setProvisionRole(e.target.value as Role)}
+                         className="bg-transparent border-none focus:ring-0 text-slate-900 text-sm font-bold w-full outline-none p-0 appearance-none"
+                       >
+                         {allowedRoles.map(role => (
+                            <option key={role} value={role}>{role.replace('_', ' ')}</option>
+                         ))}
+                       </select>
                      </div>
                      <button 
                        type="submit"
+                       disabled={provisionStatus === 'loading'}
                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap ${
-                          inviteStatus === 'success' 
+                          provisionStatus === 'success' 
                           ? 'bg-green-500 text-white hover:bg-green-600' 
+                          : provisionStatus === 'error'
+                          ? 'bg-red-500 text-white hover:bg-red-600'
                           : 'bg-blue-600 hover:bg-blue-500 text-white'
                        }`}
                      >
-                       {inviteStatus === 'success' ? (
-                         <><CheckCircle2 size={16} /> Created!</>
+                       {provisionStatus === 'loading' ? (
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                       ) : provisionStatus === 'success' ? (
+                         <><CheckCircle2 size={16} /> Created</>
+                       ) : provisionStatus === 'error' ? (
+                         <><AlertCircle size={16} /> Retry</>
                        ) : (
-                         <><UserPlus size={16} /> Add Ops</>
+                         <><UserPlus size={16} /> Provision User</>
                        )}
                      </button>
-                  </form>
-                )}
+                   </div>
+                </form>
              </div>
 
              {/* System Stats - Visible to Owner & Ops */}
@@ -350,8 +403,9 @@ export const ProjectList: React.FC = () => {
                     <div className="flex items-center gap-2">
                       {(isOwner || isOpsManager) && (
                         <button 
-                          onClick={(e) => handleDeleteProject(e, project.id, project.name)}
+                          onClick={(e) => handleDeleteClick(e, project.id, project.name)}
                           className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                          title="Delete Project"
                         >
                           <Trash2 size={18} />
                         </button>
@@ -499,6 +553,37 @@ export const ProjectList: React.FC = () => {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {projectToDelete && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+           <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 text-center animate-in zoom-in-95 duration-200">
+               <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                 <AlertTriangle size={24} />
+               </div>
+               <h3 className="text-lg font-bold text-slate-900 mb-2">Delete Project?</h3>
+               <p className="text-sm text-slate-500 mb-6">
+                 Are you sure you want to delete this project?
+                 <br/>
+                 <span className="font-bold text-slate-900">"{projectToDelete.name}"</span>
+               </p>
+               <div className="flex gap-3">
+                 <button 
+                   onClick={() => setProjectToDelete(null)}
+                   className="flex-1 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors"
+                 >
+                   Cancel
+                 </button>
+                 <button 
+                   onClick={confirmDelete}
+                   className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-600/20 transition-all"
+                 >
+                   Yes
+                 </button>
+               </div>
+           </div>
         </div>
       )}
     </div>

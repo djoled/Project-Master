@@ -1,84 +1,144 @@
 
--- PROJECT MASTER: VIBE STACK SCHEMA
--- DRIVER: Supabase (PostgreSQL 15+)
+-- Enable necessary extensions
+create extension if not exists "pgcrypto";
 
--- 1. ENUMS
-create type task_status as enum ('pending', 'in_progress', 'completed');
-create type user_role as enum ('owner', 'manager');
+-- 1. Types
+do $$ begin
+    create type user_role as enum ('owner', 'operations_manager', 'project_manager', 'contractor');
+exception
+    when duplicate_object then null;
+end $$;
 
--- 2. PROFILES (Extends Auth.Users)
-create table profiles (
-  id uuid references auth.users on delete cascade primary key,
-  email text not null,
-  role user_role default 'manager',
-  full_name text,
-  created_at timestamptz default now()
+do $$ begin
+    create type task_status as enum ('pending', 'in_progress', 'completed');
+exception
+    when duplicate_object then null;
+end $$;
+
+-- 2. Users Table
+-- Designed to sync with the frontend's manual ID generation or Auth IDs
+create table if not exists public.users (
+  id text primary key,
+  email text unique not null,
+  name text not null,
+  username text unique not null,
+  role user_role not null,
+  created_at bigint not null
 );
 
--- 3. PROJECTS
-create table projects (
-  id uuid default gen_random_uuid() primary key,
-  created_at timestamptz default now(),
-  title text not null,
+-- 3. Projects
+create table if not exists public.projects (
+  id text primary key,
+  name text not null,
   description text,
-  owner_id uuid references profiles(id) not null
+  owner_id text references public.users(id),
+  project_manager_ids text[], -- Array of user IDs
+  contractor_ids text[],      -- Array of user IDs
+  due_date bigint,
+  created_at bigint not null,
+  updated_at bigint not null
 );
 
--- 4. ASSIGNMENTS (Many-to-Many for PMs)
-create table project_assignments (
-  project_id uuid references projects(id) on delete cascade,
-  user_id uuid references profiles(id) on delete cascade,
-  assigned_at timestamptz default now(),
-  primary key (project_id, user_id)
+-- 4. Subcategories (Departments)
+create table if not exists public.subcategories (
+  id text primary key,
+  project_id text references public.projects(id) on delete cascade,
+  name text not null,
+  description text,
+  created_by text references public.users(id),
+  created_at bigint not null,
+  due_date bigint
 );
 
--- 5. SUBCATEGORIES
-create table subcategories (
-  id uuid default gen_random_uuid() primary key,
-  project_id uuid references projects(id) on delete cascade not null,
-  title text not null,
-  created_at timestamptz default now()
-);
-
--- 6. TASKS
-create table tasks (
-  id uuid default gen_random_uuid() primary key,
-  subcategory_id uuid references subcategories(id) on delete cascade not null,
-  title text not null,
+-- 5. Tasks (Work Items)
+create table if not exists public.tasks (
+  id text primary key,
+  subcategory_id text references public.subcategories(id) on delete cascade,
+  name text not null,
+  description text,
   status task_status default 'pending',
-  due_date timestamptz,
-  created_at timestamptz default now()
+  created_by text references public.users(id),
+  created_at bigint not null,
+  due_date bigint
 );
 
--- 7. EVIDENCE (Photos)
-create table task_evidence (
+-- 6. Photos (Documentation)
+create table if not exists public.photos (
+  id text primary key,
+  parent_type text not null check (parent_type in ('project', 'subcategory', 'task', 'chat')),
+  parent_id text not null,
+  image_url text not null,
+  uploaded_by text references public.users(id),
+  uploaded_by_name text,
+  created_at bigint not null,
+  comment text
+);
+
+-- 7. Task Comments
+create table if not exists public.task_comments (
+  id text primary key,
+  task_id text references public.tasks(id) on delete cascade,
+  user_id text references public.users(id),
+  user_name text,
+  content text not null,
+  created_at bigint not null
+);
+
+-- 8. Chat Groups
+create table if not exists public.chat_groups (
+  id text primary key,
+  name text not null,
+  member_ids text[],
+  created_by text references public.users(id),
+  created_at bigint not null
+);
+
+-- 9. Chat Messages
+-- Uses TIMESTAMPTZ for proper realtime handling, unlike other tables using raw timestamps
+create table if not exists public.messages (
   id uuid default gen_random_uuid() primary key,
-  task_id uuid references tasks(id) on delete cascade not null,
-  uploader_id uuid references profiles(id) not null,
-  storage_path text not null, -- Supabase Storage Path
-  uploaded_at timestamptz default now()
+  group_id text, -- Null for 'General' chat
+  sender_id text references public.users(id),
+  sender_name text,
+  content text,
+  photo_url text,
+  created_at timestamptz default now(),
+  is_read boolean default false
 );
 
--- RLS POLICIES (Summary Concept)
-alter table profiles enable row level security;
-alter table projects enable row level security;
-alter table tasks enable row level security;
+-- 10. Notifications
+create table if not exists public.notifications (
+  id text primary key,
+  user_id text references public.users(id),
+  type text not null,
+  message text not null,
+  related_to jsonb,
+  is_read boolean default false,
+  created_at bigint not null
+);
 
--- Owners can do everything
-create policy "Owners have full access" on projects
-  for all using (
-    exists (
-      select 1 from profiles
-      where profiles.id = auth.uid() and profiles.role = 'owner'
-    )
-  );
+-- Enable RLS (Row Level Security)
+alter table public.users enable row level security;
+alter table public.projects enable row level security;
+alter table public.subcategories enable row level security;
+alter table public.tasks enable row level security;
+alter table public.photos enable row level security;
+alter table public.task_comments enable row level security;
+alter table public.chat_groups enable row level security;
+alter table public.messages enable row level security;
+alter table public.notifications enable row level security;
 
--- Managers can view assigned projects
-create policy "Managers view assigned" on projects
-  for select using (
-    exists (
-      select 1 from project_assignments
-      where project_assignments.project_id = projects.id
-      and project_assignments.user_id = auth.uid()
-    )
-  );
+-- OPEN PERMISSIONS (For Development/MVP)
+-- In production, replace these with specific policies based on auth.uid()
+create policy "Public Access Users" on public.users for all using (true);
+create policy "Public Access Projects" on public.projects for all using (true);
+create policy "Public Access Subcategories" on public.subcategories for all using (true);
+create policy "Public Access Tasks" on public.tasks for all using (true);
+create policy "Public Access Photos" on public.photos for all using (true);
+create policy "Public Access Comments" on public.task_comments for all using (true);
+create policy "Public Access ChatGroups" on public.chat_groups for all using (true);
+create policy "Public Access Messages" on public.messages for all using (true);
+create policy "Public Access Notifications" on public.notifications for all using (true);
+
+-- Enable Realtime
+alter publication supabase_realtime add table public.messages;
