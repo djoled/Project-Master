@@ -2,8 +2,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAppContext } from '../context/AppContext';
-import { ChevronLeft, Plus, FolderOpen, Image as ImageIcon, CheckCircle2, MoreHorizontal, UserCog, Users, ShieldCheck, Calendar, Clock, Trash2, HardHat, Maximize2, X, UserPlus, Check, Lock, Key } from 'lucide-react';
+import { ChevronLeft, Plus, FolderOpen, Image as ImageIcon, CheckCircle2, MoreHorizontal, UserCog, Users, ShieldCheck, Calendar, Clock, Trash2, HardHat, Maximize2, X, UserPlus, Check, Lock, Key, AlertCircle } from 'lucide-react';
 import { Subcategory, Role, Photo, User } from '../types';
+import { supabase } from '../services/supabaseClient';
 
 export const ProjectDetail: React.FC = () => {
   const { id } = useParams();
@@ -25,6 +26,8 @@ export const ProjectDetail: React.FC = () => {
   const [inviteName, setInviteName] = useState('');
   const [inviteUsername, setInviteUsername] = useState('');
   const [invitePassword, setInvitePassword] = useState('');
+  const [isInviting, setIsInviting] = useState(false);
+  const [inviteError, setInviteError] = useState('');
   
   // ACCESS CONTROL REDEFINITION
   const isOwner = state.currentUser?.role === Role.OWNER;
@@ -41,6 +44,7 @@ export const ProjectDetail: React.FC = () => {
   useEffect(() => {
     if (showTeamModal) {
       setInviteRole(canCreatePM ? Role.PM : Role.CONTRACTOR);
+      setInviteError('');
     }
   }, [showTeamModal, canCreatePM]);
 
@@ -157,33 +161,61 @@ export const ProjectDetail: React.FC = () => {
     setShowTeamModal(false);
   };
 
-  const handleCreateAndAssign = (e: React.MouseEvent) => {
+  const handleCreateAndAssign = async (e: React.MouseEvent) => {
       e.preventDefault();
       if(!inviteUsername.trim() || !inviteName.trim()) return;
+      
+      setInviteError('');
+      setIsInviting(true);
 
       let userIdToAdd = '';
       const existingUser = state.users.find(u => u.username.toLowerCase() === inviteUsername.toLowerCase());
 
       if (existingUser) {
           userIdToAdd = existingUser.id;
-          // Ensure we don't switch roles on existing users unexpectedly, but for MVP we assume correct assignment
+          setIsInviting(false);
       } else {
           if (!invitePassword) {
-              alert('Password is required for new users');
+              setInviteError('Password is required for new users');
+              setIsInviting(false);
               return;
           }
-          // Register new User
-          const newUser: User = {
-              id: Math.random().toString(36).substr(2, 9),
-              name: inviteName,
-              username: inviteUsername,
-              password: invitePassword,
-              email: `${inviteUsername}@projectmaster.com`,
-              role: inviteRole,
-              createdAt: Date.now()
-          };
-          dispatch({ type: 'REGISTER_USER', payload: newUser });
-          userIdToAdd = newUser.id;
+
+          try {
+            // Call Edge Function to create user
+            const { data, error } = await supabase.functions.invoke('create-user', {
+              body: { 
+                email: `${inviteUsername}@projectmaster.com`, // Generating email from username for system consistency
+                password: invitePassword,
+                role: inviteRole,
+                full_name: inviteName,
+                username: inviteUsername
+              }
+            });
+
+            if (error) throw error;
+            if (data?.error) throw new Error(data.error);
+
+            // Add user to local state immediately
+            if (data && data.user) {
+              const newUser: User = {
+                id: data.user.id,
+                name: inviteName,
+                username: inviteUsername,
+                email: data.user.email,
+                role: inviteRole,
+                createdAt: Date.now()
+              };
+              dispatch({ type: 'REGISTER_USER', payload: newUser });
+              userIdToAdd = newUser.id;
+            }
+
+          } catch (err: any) {
+            console.error(err);
+            setInviteError(err.message || 'Failed to create user');
+            setIsInviting(false);
+            return;
+          }
       }
 
       // Add to selection based on role
@@ -198,6 +230,7 @@ export const ProjectDetail: React.FC = () => {
       }
 
       setInviteSuccess(true);
+      setIsInviting(false);
       setTimeout(() => setInviteSuccess(false), 3000);
       setInviteName('');
       setInviteUsername('');
@@ -450,7 +483,7 @@ export const ProjectDetail: React.FC = () => {
                 {/* Create/Assign User Section */}
                 <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
                     <h3 className="text-xs font-black uppercase tracking-widest text-blue-700 mb-3 flex items-center gap-2">
-                        <UserPlus size={14} /> Create New Account
+                        <UserPlus size={14} /> Invite New Member
                     </h3>
                     <div className="space-y-3">
                         <div className="flex gap-2">
@@ -495,13 +528,21 @@ export const ProjectDetail: React.FC = () => {
                                 className="flex-1 px-3 py-2 bg-white rounded-lg text-sm font-bold border-none focus:ring-2 focus:ring-blue-500/20 outline-none text-slate-900"
                             />
                         </div>
+                        
+                        {inviteError && (
+                          <div className="bg-red-100 border border-red-200 text-red-700 px-3 py-2 rounded-lg flex items-center gap-2 text-xs font-bold">
+                            <AlertCircle size={14} /> {inviteError}
+                          </div>
+                        )}
+
                         <button 
                             type="button"
                             onClick={handleCreateAndAssign}
-                            className={`w-full px-4 py-2 rounded-lg text-xs font-bold text-white transition-all shadow-md flex items-center justify-center gap-2 ${inviteSuccess ? 'bg-green-500' : 'bg-blue-600 hover:bg-blue-700'}`}
+                            disabled={isInviting || !inviteUsername || !inviteName}
+                            className={`w-full px-4 py-2 rounded-lg text-xs font-bold text-white transition-all shadow-md flex items-center justify-center gap-2 ${inviteSuccess ? 'bg-green-500' : 'bg-blue-600 hover:bg-blue-700 disabled:opacity-50'}`}
                         >
-                            {inviteSuccess ? <Check size={14} /> : <Plus size={14} />}
-                            {inviteSuccess ? 'Created & Assigned' : 'Create & Assign'}
+                            {isInviting ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : inviteSuccess ? <Check size={14} /> : <Plus size={14} />}
+                            {isInviting ? 'Creating...' : inviteSuccess ? 'Created & Assigned' : 'Create & Assign'}
                         </button>
                         <p className="text-[10px] text-blue-600/60 text-center">
                             If username exists, they will just be assigned. Otherwise, a new account is created.
@@ -686,7 +727,7 @@ export const ProjectDetail: React.FC = () => {
       )}
 
       {zoomedPhoto && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-950/95 backdrop-blur-md animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-950/95 backdrop-blur-md animate-in fade-in duration-200" onClick={() => setZoomedPhoto(null)}>
           <button onClick={() => setZoomedPhoto(null)} className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all">
             <X size={32} />
           </button>

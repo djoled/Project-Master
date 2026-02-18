@@ -2,8 +2,8 @@
 import React, { useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAppContext } from '../context/AppContext';
-import { ChevronLeft, Camera, History, User as UserIcon, CheckCircle2, Clock, Calendar, Sparkles, X, Maximize2, ChevronRight, Image as ImageIcon, Send, MessageSquare } from 'lucide-react';
-import { Photo, Role, TaskComment } from '../types';
+import { ChevronLeft, Camera, History, User as UserIcon, CheckCircle2, Clock, Calendar, Sparkles, X, Maximize2, ChevronRight, Image as ImageIcon, Send, MessageSquare, AlertCircle } from 'lucide-react';
+import { Photo, Role, TaskComment, Task } from '../types';
 import { GoogleGenAI } from "@google/genai";
 
 export const TaskDetail: React.FC = () => {
@@ -48,6 +48,10 @@ export const TaskDetail: React.FC = () => {
   const photos = state.photos.filter(p => p.parentId === id).sort((a, b) => b.createdAt - a.createdAt);
   const comments = state.taskComments.filter(c => c.taskId === id).sort((a, b) => a.createdAt - b.createdAt);
 
+  // Helper for determining who can change status
+  const isManagement = isOwner || isOpsManager || isAssignedPM;
+  const isContractor = state.currentUser?.role === Role.CONTRACTOR;
+
   const handleAIAnalysis = async () => {
     setAnalyzing(true);
     try {
@@ -90,8 +94,8 @@ export const TaskDetail: React.FC = () => {
         };
         dispatch({ type: 'ADD_PHOTO', payload: photo });
 
-        // Update task status if it was pending
-        if (task.status === 'pending') {
+        // Update task status if it was pending and user is contractor
+        if (task.status === 'pending' && isContractor) {
           dispatch({ type: 'UPDATE_TASK_STATUS', payload: { taskId: task.id, status: 'in_progress' } });
         }
 
@@ -140,7 +144,19 @@ export const TaskDetail: React.FC = () => {
   };
 
   const toggleStatus = () => {
-    const nextStatus = task.status === 'completed' ? 'in_progress' : 'completed';
+    let nextStatus: Task['status'] = task.status;
+
+    if (isManagement) {
+        // Management can cycle to Completed or Revert
+        if (task.status === 'completed') nextStatus = 'in_progress';
+        else nextStatus = 'completed';
+    } else if (isContractor) {
+        // Contractor Flow: Pending -> In Progress -> Pending Review -> (Stop)
+        if (task.status === 'pending') nextStatus = 'in_progress';
+        else if (task.status === 'in_progress') nextStatus = 'pending_review';
+        else if (task.status === 'pending_review') return; // Cannot change, waiting for approval
+    }
+
     dispatch({ type: 'UPDATE_TASK_STATUS', payload: { taskId: task.id, status: nextStatus } });
   };
 
@@ -148,6 +164,25 @@ export const TaskDetail: React.FC = () => {
     if (!ts) return 'No Date';
     return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
+
+  const getStatusButtonConfig = () => {
+    if (task.status === 'completed') {
+        return { label: 'Completed', icon: <CheckCircle2 size={18} />, color: 'bg-green-600 text-white hover:bg-green-700' };
+    }
+    if (task.status === 'pending_review') {
+        if (isManagement) {
+             return { label: 'Approve & Complete', icon: <CheckCircle2 size={18} />, color: 'bg-indigo-600 text-white hover:bg-indigo-700 animate-pulse' };
+        }
+        return { label: 'Waiting Approval', icon: <Clock size={18} />, color: 'bg-indigo-100 text-indigo-700 cursor-not-allowed opacity-80' };
+    }
+    if (task.status === 'in_progress') {
+         if (isContractor) return { label: 'Submit for Review', icon: <Send size={18} />, color: 'bg-blue-600 text-white hover:bg-blue-700' };
+         return { label: 'In Progress', icon: <Clock size={18} />, color: 'bg-blue-100 text-blue-700' };
+    }
+    return { label: 'Start Task', icon: <Clock size={18} />, color: 'bg-slate-100 text-slate-700 hover:bg-slate-200' };
+  };
+
+  const statusConfig = getStatusButtonConfig();
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300 pb-12">
@@ -194,12 +229,11 @@ export const TaskDetail: React.FC = () => {
               </div>
               <button 
                 onClick={toggleStatus}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm shrink-0 ${
-                  task.status === 'completed' ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
+                disabled={isContractor && task.status === 'pending_review'}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm shrink-0 ${statusConfig.color}`}
               >
-                {task.status === 'completed' ? <CheckCircle2 size={18} /> : <Clock size={18} />}
-                {task.status === 'completed' ? 'Completed' : 'Active'}
+                {statusConfig.icon}
+                {statusConfig.label}
               </button>
             </div>
 
@@ -228,7 +262,11 @@ export const TaskDetail: React.FC = () => {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-6 border-t border-slate-50">
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold text-slate-400 uppercase mb-1">Status</span>
-                <span className={`text-sm font-bold capitalize ${task.status === 'completed' ? 'text-green-600' : 'text-amber-600'}`}>
+                <span className={`text-sm font-bold capitalize ${
+                    task.status === 'completed' ? 'text-green-600' : 
+                    task.status === 'pending_review' ? 'text-indigo-600' :
+                    'text-amber-600'
+                }`}>
                   {task.status.replace('_', ' ')}
                 </span>
               </div>

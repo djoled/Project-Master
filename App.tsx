@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider, useAppContext } from './context/AppContext';
@@ -9,6 +8,7 @@ import { ProjectDetail } from './pages/ProjectDetail';
 import { SubcategoryDetail } from './pages/SubcategoryDetail';
 import { TaskDetail } from './pages/TaskDetail';
 import { Members } from './pages/Members';
+import { VirtualKeyboard } from './components/VirtualKeyboard';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { state } = useAppContext();
@@ -30,6 +30,7 @@ const App: React.FC = () => {
             <Route path="/task/:id" element={<PrivateRoute><TaskDetail /></PrivateRoute>} />
             <Route path="/members" element={<PrivateRoute><Members /></PrivateRoute>} />
           </Routes>
+          <VirtualKeyboard />
         </Layout>
       </HashRouter>
     </AppProvider>

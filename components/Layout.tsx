@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAppContext } from '../context/AppContext';
@@ -17,6 +18,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [newUserData, setNewUserData] = useState({ name: '', username: '', password: '' });
   const [selectedRole, setSelectedRole] = useState<Role>(Role.CONTRACTOR);
   const [createSuccess, setCreateSuccess] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
 
   const handleLogout = () => {
     dispatch({ type: 'SET_USER', payload: null });
@@ -26,8 +28,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const getCreatableRoles = (currentRole: Role): Role[] => {
     switch (currentRole) {
       case Role.OWNER: return [Role.OPS_MANAGER, Role.PM, Role.CONTRACTOR];
-      case Role.OPS_MANAGER: return [Role.PM, Role.CONTRACTOR];
-      case Role.PM: return [Role.CONTRACTOR];
+      case Role.OPS_MANAGER: return [Role.PM, Role.CONTRACTOR]; // Ops can create PM and Contractor
+      case Role.PM: return [Role.CONTRACTOR]; // PM can create Contractor
       default: return [];
     }
   };
@@ -45,6 +47,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     e.preventDefault();
     if (!newUserData.username || !newUserData.name || !newUserData.password || !selectedRole) return;
 
+    setIsCreating(true);
     try {
       const { data, error } = await supabase.functions.invoke('create-user', {
         body: { 
@@ -56,8 +59,20 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         }
       });
 
-      if (error) {
-        throw error;
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      // Optimistically update local state if successful
+      if (data && data.user) {
+          const newUser: User = {
+            id: data.user.id,
+            name: newUserData.name,
+            username: newUserData.username,
+            email: data.user.email,
+            role: selectedRole,
+            createdAt: Date.now()
+          };
+          dispatch({ type: 'REGISTER_USER', payload: newUser });
       }
 
       setCreateSuccess(true);
@@ -70,6 +85,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     } catch (err: any) {
       alert(`Failed to create user: ${err.message}`);
       console.error(err);
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -130,7 +147,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                  className="hidden sm:flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-full text-xs font-bold hover:bg-blue-700 transition-all shadow-md"
                >
                  <UserPlus size={16} />
-                 <span>Create {creatableRoles.length > 1 ? 'User' : getRoleLabel(creatableRoles[0])}</span>
+                 <span>Invite {creatableRoles.length > 1 ? 'User' : getRoleLabel(creatableRoles[0])}</span>
                </button>
             )}
 
@@ -224,7 +241,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-blue-600 text-white">
               <h2 className="text-xl font-bold flex items-center gap-2">
                 <UserPlus size={24} />
-                Create User
+                Invite User
               </h2>
               <button onClick={() => setShowCreateUserModal(false)} className="hover:bg-white/20 p-1 rounded-lg">
                 <X size={24} />
@@ -237,8 +254,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
                     <Check size={32} />
                   </div>
-                  <h3 className="text-lg font-bold text-slate-900">User Created!</h3>
-                  <p className="text-slate-500 text-sm">Credentials have been set for {newUserData.name}.</p>
+                  <h3 className="text-lg font-bold text-slate-900">User Invited!</h3>
+                  <p className="text-slate-500 text-sm">Credentials set for {newUserData.name}.</p>
                 </div>
               ) : (
                 <>
@@ -318,10 +335,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   <div className="pt-2">
                     <button 
                         type="submit"
-                        className="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 shadow-xl shadow-blue-600/20 transition-all flex items-center justify-center gap-2"
+                        disabled={isCreating}
+                        className="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 shadow-xl shadow-blue-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                     >
-                        <UserPlus size={18} />
-                        Create Account
+                        {isCreating ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <UserPlus size={18} />}
+                        {isCreating ? 'Creating...' : 'Invite Account'}
                     </button>
                   </div>
                 </>

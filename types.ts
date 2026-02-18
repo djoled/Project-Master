@@ -43,7 +43,7 @@ export interface Task {
   subcategoryId: string;
   name: string;
   description: string;
-  status: 'pending' | 'in_progress' | 'completed';
+  status: 'pending' | 'in_progress' | 'pending_review' | 'completed';
   createdBy: string;
   createdAt: number;
   dueDate?: number;

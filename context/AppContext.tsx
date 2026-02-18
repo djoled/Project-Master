@@ -1,6 +1,6 @@
-
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
 import { AppState, User, Project, Subcategory, Task, Photo, ChatMessage, Notification, Role, ChatGroup, TaskComment } from '../types';
+import { MOCK_USERS, MOCK_PROJECTS, MOCK_SUBCATEGORIES, MOCK_TASKS, MOCK_PHOTOS } from '../mockData';
 
 type Action =
   | { type: 'SET_USER'; payload: User | null }
@@ -24,17 +24,14 @@ type Action =
   | { type: 'LOAD_DATA'; payload: Partial<AppState> }
   | { type: 'TOGGLE_CREATE_GROUP_MODAL'; payload: boolean };
 
-// Start with empty arrays for a fresh production-like start
-const initialUsers: User[] = [];
-const seedProjects: Project[] = [];
-
+// Initialize with Mock Data for Demo Mode consistency
 const initialState: AppState = {
   currentUser: null,
-  users: initialUsers,
-  projects: seedProjects,
-  subcategories: [],
-  tasks: [],
-  photos: [],
+  users: MOCK_USERS,
+  projects: MOCK_PROJECTS,
+  subcategories: MOCK_SUBCATEGORIES,
+  tasks: MOCK_TASKS,
+  photos: MOCK_PHOTOS,
   taskComments: [],
   messages: [],
   chatGroups: [],
@@ -79,7 +76,7 @@ function appReducer(state: AppState, action: Action): AppState {
         subcategories: state.subcategories.filter(s => s.projectId !== action.payload),
         tasks: state.tasks.filter(t => !subcategoryIds.includes(t.subcategoryId)),
         photos: state.photos.filter(p => p.parentId !== action.payload && !subcategoryIds.includes(p.parentId)),
-        taskComments: state.taskComments.filter(c => !state.tasks.find(t => t.id === c.taskId && subcategoryIds.includes(t.subcategoryId))) // Ideally deeper clean but this is fine for MVP
+        taskComments: state.taskComments.filter(c => !state.tasks.find(t => t.id === c.taskId && subcategoryIds.includes(t.subcategoryId)))
       };
     }
     case 'UPDATE_PROJECT_MEMBERS':
@@ -153,32 +150,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [state, dispatch] = useReducer(appReducer, initialState);
 
   useEffect(() => {
-    // Changed key to project_master_v3 to ensure a clean slate for schema change
     const saved = localStorage.getItem('project_master_v3');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        dispatch({ 
-          type: 'LOAD_DATA', 
-          payload: {
-            ...parsed,
-            users: parsed.users || initialUsers,
-            chatGroups: parsed.chatGroups || [],
-            taskComments: parsed.taskComments || [],
-            uiCreateGroupModalOpen: false,
-            // Migration for old projects
-            projects: (parsed.projects || seedProjects).map((p: any) => ({
-              ...p,
-              projectManagerIds: p.projectManagerIds || [],
-              contractorIds: p.contractorIds || [],
-              // opsManagerIds is deliberately removed/ignored
-            }))
-          } 
-        });
+        // If we have saved data, merge it. 
+        // Important: Ensure we don't accidentally wipe mock data if local storage is partial/corrupt, 
+        // but generally prefer local storage if present.
+        if (parsed.users && parsed.users.length > 0) {
+            dispatch({ 
+            type: 'LOAD_DATA', 
+            payload: {
+                ...parsed,
+                uiCreateGroupModalOpen: false,
+            } 
+            });
+        }
       } catch (e) {
         console.error("Failed to load state", e);
       }
     }
+    // If no data was loaded (localStorage empty), initialState (with mocks) remains active.
   }, []);
 
   useEffect(() => {

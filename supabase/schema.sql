@@ -10,7 +10,8 @@ exception
 end $$;
 
 do $$ begin
-    create type task_status as enum ('pending', 'in_progress', 'completed');
+    -- Updated to include pending_review
+    create type task_status as enum ('pending', 'in_progress', 'pending_review', 'completed');
 exception
     when duplicate_object then null;
 end $$;

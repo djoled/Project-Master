@@ -1,7 +1,8 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { Send, Image as ImageIcon, X, MessageSquare, Hash, Plus, CheckCircle2, Settings, UserMinus, LogOut, Edit3, Check } from 'lucide-react';
-import { ChatMessage, ChatGroup } from '../types';
+import { ChatMessage, ChatGroup, Role } from '../types';
 import { supabase } from '../services/supabaseClient';
 
 export const ChatPanel: React.FC = () => {
@@ -174,6 +175,8 @@ export const ChatPanel: React.FC = () => {
     setEditingName(false);
   };
 
+  const canCreateGroups = state.currentUser?.role !== Role.CONTRACTOR;
+
   return (
     <div className="flex flex-col h-full bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden min-h-0 relative">
       {/* Header */}
@@ -213,12 +216,14 @@ export const ChatPanel: React.FC = () => {
               {group.name}
             </button>
           ))}
-          <button
-            onClick={() => dispatch({ type: 'TOGGLE_CREATE_GROUP_MODAL', payload: true })}
-            className="shrink-0 w-7 h-7 rounded-full border border-dashed border-slate-300 text-slate-400 hover:border-blue-400 hover:text-blue-500 hover:bg-blue-50 flex items-center justify-center"
-          >
-            <Plus size={14} />
-          </button>
+          {canCreateGroups && (
+            <button
+                onClick={() => dispatch({ type: 'TOGGLE_CREATE_GROUP_MODAL', payload: true })}
+                className="shrink-0 w-7 h-7 rounded-full border border-dashed border-slate-300 text-slate-400 hover:border-blue-400 hover:text-blue-500 hover:bg-blue-50 flex items-center justify-center"
+            >
+                <Plus size={14} />
+            </button>
+          )}
         </div>
       </div>
 
