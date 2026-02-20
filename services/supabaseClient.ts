@@ -1,12 +1,11 @@
+
 import { createClient } from '@supabase/supabase-js';
 
-// Project Configuration
-// Uses environment variables if available (Vite standard), falls back to provided keys for Demo/MVP reliability.
-const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || "https://mdbbylxfglgzvftcsdvr.supabase.co";
-const SUPABASE_PUBLIC_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "sb_publishable_k2QaVRbmfnXHk5jtJdjkRw_7mow58Y-";
+// Project Configuration using user-provided credentials
+const SUPABASE_URL = "https://mdbbylxfglgzvftcsdvr.supabase.co";
+const SUPABASE_PUBLIC_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1kYmJ5bHhmZ2xnenZmdGNzZHZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExNzA4ODQsImV4cCI6MjA4Njc0Njg4NH0.p3OPQEmCXcdF3giT2gy2ZTCfP1DBRwTdU1gn9dkEvGo";
 
 // Initialize the Supabase Client
-// This instance will be shared across the application for Auth, Database, and Realtime interactions.
 export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY, {
   auth: {
     persistSession: true,

@@ -6,7 +6,7 @@ import { Trash2, User, ShieldCheck, Activity, Briefcase, HardHat, Search, Users,
 import { useNavigate } from 'react-router-dom';
 
 export const Members: React.FC = () => {
-  const { state, dispatch } = useAppContext();
+  const { state, dbActions } = useAppContext();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -26,9 +26,14 @@ export const Members: React.FC = () => {
     );
   }
 
-  const handleDeleteUser = (userId: string, userName: string) => {
+  const handleDeleteUser = async (userId: string, userName: string) => {
     if (window.confirm(`Are you sure you want to remove ${userName}? This will remove them from all projects and chat groups.`)) {
-      dispatch({ type: 'DELETE_USER', payload: userId });
+      try {
+        await dbActions.deleteUser(userId);
+      } catch (e) {
+        console.error("Failed to delete user", e);
+        alert("Could not delete user. Please check permissions.");
+      }
     }
   };
 
